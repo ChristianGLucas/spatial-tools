@@ -98,10 +98,9 @@ nodes:
         (the Minkowski-family metrics a KD-tree natively supports; for
         cosine/hamming/jaccard/mahalanobis use PairwiseDistanceMatrix /
         CrossDistanceMatrix instead). Returns Q x k index and distance
-        matrices, ascending-distance order per row; rows are padded with
-        index -1 / distance +Infinity if fewer than k candidate points
-        exist. k must satisfy 1 <= k <= min(N, 256); Q * k is capped at
-        100000.
+        matrices, ascending-distance order per row; every row is always
+        fully populated with k real neighbors (no padding). k must satisfy
+        1 <= k <= min(N, 256); Q * k is capped at 100000.
       input: KNNInput
       output: KNNResult
     - name: RadiusNeighbors

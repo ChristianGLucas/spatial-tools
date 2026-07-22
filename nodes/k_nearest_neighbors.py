@@ -25,9 +25,9 @@ def k_nearest_neighbors(ax: AxiomContext, input: KNNInput) -> KNNResult:
     """Build a KD-tree over `points` (scipy.spatial.cKDTree) and query the
     k nearest neighbors of each row in `queries`. metric is "euclidean"
     (default), "cityblock", or "chebyshev". Returns Q x k index and
-    distance matrices in ascending-distance order per row; rows are padded
-    with index -1 / distance +Infinity if fewer than k candidate points
-    exist.
+    distance matrices in ascending-distance order per row. k is rejected
+    with INVALID_ARGUMENT if it exceeds len(points) — every returned row is
+    always fully populated with k real neighbors, never padded.
     """
     try:
         check_matrix_shape(input.points, max_rows=MAX_POINTS, max_cols=MAX_DIM, name="points")

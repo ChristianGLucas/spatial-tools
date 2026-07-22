@@ -132,12 +132,14 @@ message VoronoiInput {
 }
 
 // vertices: the M Voronoi vertices (finite ones only), M x D.
-// regions: one row per INPUT point (see point_region for the exact mapping),
-// each row a ragged list of indices into `vertices` bounding that point's
-// cell; -1 in a row means the region is unbounded (extends to infinity on
-// that side) — scipy's own convention. An empty row means scipy could not
-// resolve a finite/well-defined region for that point (rare, e.g. duplicate
-// input points).
+// regions: scipy's own `regions` list, which always contains one extra
+// EMPTY placeholder row (its internal "point at infinity" bookkeeping
+// entry) alongside the real per-input-point regions — this is normal for
+// every input, not an error condition. Use `point_region` (never a raw
+// index into `regions`) to look up input point i's own region: each row a
+// ragged list of indices into `vertices` bounding that point's cell; -1 in
+// a row means the region is unbounded (extends to infinity on that side)
+// — scipy's own convention.
 // point_region: for each input point i, the index of its region in
 // `regions` — scipy does not guarantee `regions[i]` already corresponds to
 // input point i, so this mapping is always returned.
@@ -209,9 +211,9 @@ message KNNInput {
 // indices: Q x k matrix, `indices[i][j]` is the row-index into `points` of
 // query i's j-th nearest neighbor (ascending distance order).
 // distances: Q x k matrix, index-aligned with `indices`.
-// If N < k, each row is padded to length k with index -1 / distance
-// +Infinity for the missing slots (scipy's own convention when there are
-// fewer candidate points than requested neighbors).
+// k is rejected with INVALID_ARGUMENT if it exceeds the number of points in
+// `points` (see KNNInput), so every returned row is always fully populated
+// with k real neighbors — there is no padding case.
 message KNNResult {
   IntMatrix indices = 1;
   Matrix distances = 2;
