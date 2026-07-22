@@ -1,0 +1,483 @@
+// This file defines the data contracts (messages) for your Axiom package.
+// Every node's --input and --output refers to a message defined here.
+//
+// Run `axiom create message <Name>` to scaffold a new message below.
+// Run `axiom generate` to compile these definitions into language bindings in gen/.
+//
+// DOCUMENTATION
+//   Comments written directly above a message or field declaration are extracted
+//   automatically at publish time and shown in the Axiom registry as documentation.
+//   Write your descriptions there — no separate doc files needed.
+//
+//   Leading comment  (no blank line before the declaration) → registry description ✓
+//   Detached comment (blank line before the declaration)    → ignored by registry  ✗
+//
+// This file is yours to edit. Axiom only appends new message blocks — it never
+// overwrites or removes content you have written.
+
+syntax = "proto3";
+
+package christiangeorgelucas.spatial_tools;
+
+// ---------------------------------------------------------------------------
+// Shared primitives. A point set is always a dense numeric Matrix (rows of
+// equal-length MatrixRow, one row per N-dimensional point) — the same
+// row-major convention used by christiangeorgelucas/numerics-tools and
+// christiangeorgelucas/sklearn-tools, so a flow can pass a point set between
+// this package and those without reshaping. (Cross-package proto import is
+// not supported by `axiom generate` on this platform version — every sibling
+// package that shares this convention independently fell back to the same
+// structurally-identical local copy, not an import.) Every node caps
+// rows/cols/derived-output size hard (see each node's own description) to
+// stay within a sane compute budget and the ~4 MiB Axiom transport limit,
+// checked BEFORE the expensive computation runs wherever the output size is
+// known ahead of time.
+// ---------------------------------------------------------------------------
+
+// Structured error shared by every result message in this package. On
+// success `code` is empty; on failure it carries a stable machine-readable
+// token (see each node's own description for its exact vocabulary, e.g.
+// "EMPTY_INPUT", "RAGGED_MATRIX", "DIMENSION_MISMATCH", "TOO_LARGE",
+// "DEGENERATE_INPUT", "INSUFFICIENT_POINTS", "INVALID_ARGUMENT") and
+// `message` a human-readable detail. A node never crashes on malformed or
+// degenerate input — it always returns this instead.
+message Error {
+  string code = 1;
+  string message = 2;
+}
+
+// One row of a dense numeric matrix (one N-dimensional point, or one row of
+// a distance matrix).
+message MatrixRow {
+  repeated double values = 1;
+}
+
+// A dense numeric matrix, represented as a list of rows (row-major) rather
+// than a flat array, so row/column indices map directly onto entries with no
+// manual stride arithmetic. A "point set" input requires all rows to be the
+// same length (the shared dimensionality D); an empty `rows` list or ragged
+// rows are rejected as EMPTY_INPUT/RAGGED_MATRIX by every node that consumes
+// one as a point set. Some *output* matrices in this package (Voronoi
+// regions/ridges) are legitimately ragged — ragged-row Matrix/IntMatrix
+// results are documented explicitly on the node that returns them.
+message Matrix {
+  repeated MatrixRow rows = 1;
+}
+
+// A dense numeric vector.
+message Vector {
+  repeated double values = 1;
+}
+
+// A dense vector of integers (e.g. point indices).
+message IntVector {
+  repeated int32 values = 1;
+}
+
+// One row of an integer matrix.
+message IntMatrixRow {
+  repeated int32 values = 1;
+}
+
+// A dense integer matrix (e.g. k-NN neighbor indices, simplex vertex
+// indices). Some nodes return this with ragged (unequal-length) rows —
+// documented on the node that does so; -1 is used as an explicit sentinel
+// where scipy itself uses -1 (e.g. "no neighboring simplex on this facet",
+// "this Voronoi region/ridge extends to infinity") — the node description
+// says so wherever it applies.
+message IntMatrix {
+  repeated IntMatrixRow rows = 1;
+}
+
+// A dense vector of booleans (e.g. per-query point-in-hull results).
+message BoolVector {
+  repeated bool values = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Delaunay triangulation
+// ---------------------------------------------------------------------------
+
+// points: N x D point set, D must be 2 or 3 (the flagship 2D/3D case; scipy
+// itself supports higher D but combinatorial simplex count explodes, so it
+// is out of scope here — see ConvexHull for general-nD hull computation).
+// N is capped at 20000 to keep the simplex/neighbor output comfortably under
+// the transport limit for the normal (non-pathological) case.
+message DelaunayInput {
+  Matrix points = 1;
+}
+
+// simplices: one row per simplex, D+1 point indices into the input `points`
+// (a triangle for D=2, a tetrahedron for D=3), in scipy's own vertex order.
+// neighbors: one row per simplex (index-aligned with `simplices`), D+1
+// neighboring-simplex indices, one per facet, in scipy's own facet order;
+// -1 means "no neighbor on this facet" (the facet is on the convex hull
+// boundary). DEGENERATE_INPUT is returned for collinear (2D) / coplanar (3D)
+// points that admit no triangulation; INSUFFICIENT_POINTS if there are
+// fewer than D+1 points.
+message DelaunayResult {
+  IntMatrix simplices = 1;
+  IntMatrix neighbors = 2;
+  Error error = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Voronoi diagram (the dual of Delaunay)
+// ---------------------------------------------------------------------------
+
+// points: N x D point set (the Voronoi "sites"), D must be 2 or 3, same
+// rationale and N cap as DelaunayInput.
+message VoronoiInput {
+  Matrix points = 1;
+}
+
+// vertices: the M Voronoi vertices (finite ones only), M x D.
+// regions: one row per INPUT point (see point_region for the exact mapping),
+// each row a ragged list of indices into `vertices` bounding that point's
+// cell; -1 in a row means the region is unbounded (extends to infinity on
+// that side) — scipy's own convention. An empty row means scipy could not
+// resolve a finite/well-defined region for that point (rare, e.g. duplicate
+// input points).
+// point_region: for each input point i, the index of its region in
+// `regions` — scipy does not guarantee `regions[i]` already corresponds to
+// input point i, so this mapping is always returned.
+// ridge_points: one row per ridge, the 2 input-point indices whose cells
+// share that ridge (N_ridges x 2).
+// ridge_vertices: one row per ridge (index-aligned with `ridge_points`), a
+// ragged list of vertex indices into `vertices` forming the ridge; -1 means
+// one end of the ridge is unbounded.
+message VoronoiResult {
+  Matrix vertices = 1;
+  IntMatrix regions = 2;
+  IntVector point_region = 3;
+  IntMatrix ridge_points = 4;
+  IntMatrix ridge_vertices = 5;
+  Error error = 6;
+}
+
+// ---------------------------------------------------------------------------
+// Convex hull (general N-dimensional — distinct from geometry-tools' 2D
+// polygon hull and mesh-tools' 3D triangle-mesh hull)
+// ---------------------------------------------------------------------------
+
+// points: N x D point set, 2 <= D <= 10, N capped at 20000 (see the package
+// description for the exact combined N/D bound and why: qhull's cost is
+// combinatorial in D for pathological/highly-structured inputs, e.g. points
+// on a hypersphere — a documented, logged limitation, not solved here).
+message ConvexHullInput {
+  Matrix points = 1;
+}
+
+// vertices: indices into the input `points` that lie ON the hull (extreme
+// points), in no particular order beyond scipy's own.
+// simplices: one row per hull facet, D point indices (into `points`) making
+// up that facet (a segment for D=2, a triangle for D=3, etc.).
+// volume: the hull's D-dimensional volume (area, for D=2).
+// area: the hull's (D-1)-dimensional surface measure (perimeter, for D=2).
+// DEGENERATE_INPUT is returned when the points are coplanar/collinear (rank
+// < D, no D-dimensional hull exists); INSUFFICIENT_POINTS if fewer than D+1
+// points.
+message ConvexHullResult {
+  IntVector vertices = 1;
+  IntMatrix simplices = 2;
+  double volume = 3;
+  double area = 4;
+  Error error = 5;
+}
+
+// ---------------------------------------------------------------------------
+// KD-tree queries
+// ---------------------------------------------------------------------------
+
+// points: the N x D point set to index (the KD-tree "haystack").
+// queries: the Q x D query points (must share `points`' dimensionality D).
+// k: number of nearest neighbors to return per query, 1 <= k <= min(N, 256).
+// metric: "euclidean" (default, p=2), "cityblock"/"manhattan" (p=1), or
+// "chebyshev" (p=inf) — the Minkowski-family metrics scipy's KD-tree
+// natively supports; for an arbitrary metric (cosine, hamming, jaccard,
+// mahalanobis, ...) use PairwiseDistanceMatrix/CrossDistanceMatrix instead,
+// which are not KD-tree-accelerated but support the full scipy metric list.
+// Q * k is capped at 100000 to keep the two Q x k result matrices well under
+// the transport limit.
+message KNNInput {
+  Matrix points = 1;
+  Matrix queries = 2;
+  int32 k = 3;
+  string metric = 4;
+}
+
+// indices: Q x k matrix, `indices[i][j]` is the row-index into `points` of
+// query i's j-th nearest neighbor (ascending distance order).
+// distances: Q x k matrix, index-aligned with `indices`.
+// If N < k, each row is padded to length k with index -1 / distance
+// +Infinity for the missing slots (scipy's own convention when there are
+// fewer candidate points than requested neighbors).
+message KNNResult {
+  IntMatrix indices = 1;
+  Matrix distances = 2;
+  Error error = 3;
+}
+
+// points: the N x D point set to index.
+// queries: the Q x D query points.
+// radius: the search radius, must be > 0.
+// metric: same Minkowski-family choice as KNNInput ("euclidean" default,
+// "cityblock", "chebyshev").
+// Compute is bounded by capping N and Q on input; the *result* size is only
+// known after the query runs, so it is checked post-hoc and TOO_LARGE is
+// returned (instead of a giant payload) if the total neighbor count across
+// all queries exceeds 200000.
+message RadiusNeighborsInput {
+  Matrix points = 1;
+  Matrix queries = 2;
+  double radius = 3;
+  string metric = 4;
+}
+
+// indices: one ragged row per query point, in `points`-row-index order;
+// ascending distance order within each row is NOT guaranteed (scipy does
+// not sort query_ball_point results); an empty row means no neighbor within
+// radius.
+message RadiusNeighborsResult {
+  IntMatrix indices = 1;
+  Error error = 2;
+}
+
+// points: the N x D point set to search for close pairs within itself.
+// distance: the maximum pairwise distance, must be > 0.
+// metric: same Minkowski-family choice as KNNInput.
+// N is capped on input; the pair COUNT is checked post-hoc (same TOO_LARGE
+// pattern as RadiusNeighborsResult) since it can be O(N^2) for a large
+// radius on a dense point cloud — capped at 200000 pairs.
+message QueryPairsInput {
+  Matrix points = 1;
+  double distance = 2;
+  string metric = 3;
+}
+
+// pairs: N_pairs x 2, each row (i, j) with i < j, both indices into the
+// input `points`, meaning points i and j are within `distance` of each
+// other. Order is scipy's own (not guaranteed sorted).
+message QueryPairsResult {
+  IntMatrix pairs = 1;
+  Error error = 2;
+}
+
+// points: the N x D point set to search.
+// query: the single D-dimensional query point.
+// metric: same Minkowski-family choice as KNNInput.
+message NearestSinglePointInput {
+  Matrix points = 1;
+  Vector query = 2;
+  string metric = 3;
+}
+
+// index: row-index into `points` of the single nearest neighbor.
+// distance: its distance to `query`.
+message NearestSinglePointResult {
+  int32 index = 1;
+  double distance = 2;
+  Error error = 3;
+}
+
+// points: N x D point set.
+// k: neighbors per point in the graph (excluding the point itself),
+// 1 <= k <= min(N-1, 256).
+// N * k is capped at 100000 (same rationale as KNNInput).
+message KNNGraphInput {
+  Matrix points = 1;
+  int32 k = 2;
+}
+
+// edges: N*k rows, each row (i, j) meaning j is one of i's k nearest OTHER
+// points (self-edges excluded).
+// The graph is directed as returned (i -> j is "j is near i"); it is not
+// symmetrized — a caller who wants a mutual/undirected k-NN graph can
+// intersect/union edges themselves.
+// weights: length-aligned with `edges`, the distance for that edge.
+message KNNGraphResult {
+  IntMatrix edges = 1;
+  Vector weights = 2;
+  Error error = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Distance computations
+// ---------------------------------------------------------------------------
+
+// points: N x D point set. N is capped at 800 so the condensed output
+// (N*(N-1)/2 doubles) stays well under the transport limit (N=800 ->
+// 319600 doubles, ~2.5 MB).
+// metric: one of "euclidean" (default), "cityblock", "cosine", "chebyshev",
+// "minkowski" (uses `p`), "hamming", "jaccard", "mahalanobis" (uses the
+// inverse sample covariance scipy derives internally from `points` when
+// `inv_cov` is not supplied, matching scipy.spatial.distance.pdist's own
+// default; supply `inv_cov` to use a caller-chosen one instead).
+// p: the Minkowski exponent, only used when metric="minkowski" (default 2).
+// inv_cov: optional D x D inverse-covariance matrix, only used when
+// metric="mahalanobis".
+message PdistInput {
+  Matrix points = 1;
+  string metric = 2;
+  double p = 3;
+  Matrix inv_cov = 4;
+}
+
+// condensed: the condensed (upper-triangular, row-major) distance vector,
+// length n*(n-1)/2 — scipy's own compact pdist layout. Use `n` plus the
+// standard condensed-index formula (or scipy.spatial.distance.squareform in
+// your own code) to expand it to a full n x n matrix if needed.
+// n: number of input points (so the caller can reconstruct indices).
+message PdistResult {
+  Vector condensed = 1;
+  int32 n = 2;
+  Error error = 3;
+}
+
+// points_a: N x D point set. points_b: M x D point set (same D as
+// points_a). N * M is capped at 350000 (~2.8 MB of doubles) so the output
+// stays well under the transport limit.
+// metric/p/inv_cov: same meaning and defaults as PdistInput.
+message CdistInput {
+  Matrix points_a = 1;
+  Matrix points_b = 2;
+  string metric = 3;
+  double p = 4;
+  Matrix inv_cov = 5;
+}
+
+// distances: N x M matrix, `distances[i][j]` = distance(points_a[i],
+// points_b[j]).
+message CdistResult {
+  Matrix distances = 1;
+  Error error = 2;
+}
+
+// a, b: two single D-dimensional points (must be the same length).
+// metric: "euclidean" (default), "cityblock", "cosine", "chebyshev",
+// "minkowski" (uses `p`), "hamming", "jaccard", or "mahalanobis" (requires
+// `inv_cov` to be supplied explicitly — with only 2 points there is no
+// sample to derive a covariance from, unlike Pdist/Cdist).
+// p: Minkowski exponent, default 2.
+// inv_cov: required D x D inverse-covariance matrix when metric is
+// "mahalanobis"; ignored otherwise.
+message PointDistanceInput {
+  Vector a = 1;
+  Vector b = 2;
+  string metric = 3;
+  double p = 4;
+  Matrix inv_cov = 5;
+}
+
+message PointDistanceResult {
+  double distance = 1;
+  Error error = 2;
+}
+
+// points_a: N x D point set. points_b: M x D point set (same D). Both are
+// capped at 20000 points each — the Hausdorff computation is worst-case
+// O(N*M) though scipy's implementation short-circuits in practice.
+message HausdorffInput {
+  Matrix points_a = 1;
+  Matrix points_b = 2;
+}
+
+// distance: the SYMMETRIC Hausdorff distance,
+// max(directed(A,B), directed(B,A)).
+// from_a: true if the maximizing directed distance was A->B (i.e. the
+// farthest-nearest-neighbor point lives in `points_a`), false if B->A.
+// index_pair: the (i, j) point-index pair that achieves the returned
+// distance — i indexes the "from" set (points_a if from_a, else points_b),
+// j indexes the other set. This is scipy's own directed_hausdorff
+// index-pair output, reported for whichever direction is larger.
+message HausdorffResult {
+  double distance = 1;
+  bool from_a = 2;
+  IntVector index_pair = 3;
+  Error error = 4;
+}
+
+// points_a, points_b: two point sets of IDENTICAL shape (N x D each) —
+// Procrustes analysis matches corresponding rows, so a row-count or
+// column-count mismatch is DIMENSION_MISMATCH. N * D is capped at 350000
+// combined across both matrices, and N >= 2 (Procrustes needs at least 2
+// points to define a non-degenerate shape) with non-zero variance in both
+// inputs (a single-point or all-identical-point input has no shape to
+// align, and is rejected as DEGENERATE_INPUT).
+message ProcrustesInput {
+  Matrix points_a = 1;
+  Matrix points_b = 2;
+}
+
+// disparity: the sum of squared errors between the optimally
+// translated/scaled/rotated `aligned_a` and `aligned_b` — scipy's own M^2
+// statistic, lower means more similar shapes (0 = identical shape).
+// aligned_a, aligned_b: `points_a`/`points_b` after scipy's standardization
+// (centered at the origin, scaled to unit Frobenius norm) and, for
+// aligned_b, optimally rotated onto aligned_a — same shape as the inputs.
+message ProcrustesResult {
+  double disparity = 1;
+  Matrix aligned_a = 2;
+  Matrix aligned_b = 3;
+  Error error = 4;
+}
+
+// ---------------------------------------------------------------------------
+// Hull / bounding-box membership and interpolation setup
+// ---------------------------------------------------------------------------
+
+// points: N x D point set defining the hull, same N/D bound as
+// ConvexHullInput.
+// queries: Q x D query points to test (same D as `points`).
+// tol: optional tolerance for the inside/on-boundary test (points within
+// `tol` of a hull facet count as inside); defaults to 1e-9 when <= 0.
+message PointInHullInput {
+  Matrix points = 1;
+  Matrix queries = 2;
+  double tol = 3;
+}
+
+// inside: length Q, index-aligned with `queries`; true if that query point
+// lies inside (or on the boundary of, within `tol`) the hull of `points`.
+message PointInHullResult {
+  BoolVector inside = 1;
+  Error error = 2;
+}
+
+// points: N x D point set to triangulate, D must be 2 or 3 (same bound as
+// DelaunayInput).
+// queries: Q x D query points to locate (same D as `points`).
+message FindSimplexInput {
+  Matrix points = 1;
+  Matrix queries = 2;
+}
+
+// simplex_indices: length Q, index-aligned with `queries` — the index into
+// the (internally computed) Delaunay triangulation's simplex list
+// containing that query point, or -1 if the query point lies outside the
+// convex hull of `points`.
+// barycentric_coords: Q x (D+1) matrix, index-aligned with `queries` — the
+// barycentric weights of the query point within its containing simplex
+// (all in [0, 1] for a point actually inside, summing to 1), ready for
+// barycentric interpolation; a row is all-zero for a query point with
+// simplex_indices == -1 (no containing simplex).
+message FindSimplexResult {
+  IntVector simplex_indices = 1;
+  Matrix barycentric_coords = 2;
+  Error error = 3;
+}
+
+// points: N x D point set, D and N capped generously (D <= 50, N <= 100000)
+// since this is a single pass of min/max per column, no combinatorial cost.
+message BoundingBoxInput {
+  Matrix points = 1;
+}
+
+// min, max: length-D vectors, the per-dimension minimum and maximum
+// observed across `points` — together the corners of the axis-aligned
+// bounding box.
+message BoundingBoxResult {
+  Vector min = 1;
+  Vector max = 2;
+  Error error = 3;
+}

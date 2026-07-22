@@ -1,0 +1,244 @@
+name: christiangeorgelucas/spatial-tools
+version: 0.1.0
+language: python
+description: >-
+  Deterministic computational-spatial algorithms on N-dimensional point sets
+  for AI agents, wrapping BSD-3-Clause SciPy's scipy.spatial and
+  scipy.spatial.distance (with numpy) — nearest-neighbor search, Delaunay
+  triangulation, Voronoi diagrams, convex hulls, and distance computations.
+  Every node is a stateless, deterministic single-input/single-output
+  transform: no randomness, no wall-clock, no network, nothing persisted
+  between calls. Covers KD-tree-accelerated queries (k-nearest-neighbors,
+  radius/ball queries, close-pair search, a k-NN graph), Delaunay
+  triangulation and point-location for barycentric interpolation setup,
+  Voronoi diagrams, general N-dimensional convex hulls and point-in-hull
+  tests, pairwise/cross distance matrices across the standard metric family
+  (euclidean, cityblock, cosine, chebyshev, minkowski, hamming, jaccard,
+  mahalanobis), single-pair distances, axis-aligned bounding boxes, Hausdorff
+  distance, and Procrustes shape-alignment disparity. Distinct from
+  geometry-tools (2D planar polygon/line geometry via JTS), mesh-tools (3D
+  triangle-mesh operations via trimesh), and sklearn-tools (fits ML
+  algorithms on data; also has a brute-force k-NN query and a
+  pairwise-distance node for ML preprocessing) — this package owns the
+  scipy.spatial ALGORITHMS those don't cover: Delaunay/Voronoi tessellation,
+  KD-tree-native queries, and the full scipy distance-metric surface, all on
+  raw N-dimensional point sets. Every node hard-caps its input point count
+  and/or dimensionality (see each node's own description for the exact
+  bound and rationale) to stay under the ~4 MiB Axiom transport limit,
+  checked before the expensive computation runs wherever the output size is
+  knowable ahead of time. Degenerate input (empty point sets, ragged rows,
+  dimension mismatches, too few points, collinear/coplanar points where a
+  triangulation or hull needs full rank) returns a structured error, never
+  a crash.
+license: MIT
+author: Christian George Lucas
+tags:
+    - spatial
+    - scipy
+    - delaunay
+    - voronoi
+    - convex-hull
+    - kdtree
+    - nearest-neighbor
+    - distance-matrix
+    - computational-geometry
+    - point-cloud
+nodes:
+    - name: DelaunayTriangulate
+      description: >-
+        Compute the Delaunay triangulation of a 2D or 3D point set via
+        scipy.spatial.Delaunay (Qhull). Returns each simplex as D+1 point
+        indices (a triangle for 2D, a tetrahedron for 3D) plus the
+        per-simplex neighbor structure (-1 where a facet has no neighbor,
+        i.e. lies on the convex hull boundary). Points must be 2D or 3D
+        (higher dimensions are out of scope — see the package description);
+        fewer than D+1 points returns INSUFFICIENT_POINTS; collinear (2D) or
+        coplanar (3D) points that admit no triangulation return
+        DEGENERATE_INPUT rather than crashing. Point count is capped at
+        20000. The flagship node for mesh generation and interpolation
+        setup — see FindSimplex for locating a query point within the
+        triangulation and getting its barycentric weights.
+      input: DelaunayInput
+      output: DelaunayResult
+    - name: VoronoiDiagram
+      description: >-
+        Compute the Voronoi diagram of a 2D or 3D point set via
+        scipy.spatial.Voronoi (Qhull) — the geometric dual of Delaunay
+        triangulation, used for spatial partitioning and coverage analysis.
+        Returns the finite Voronoi vertices, each input point's (possibly
+        unbounded, ragged) region as a list of vertex indices with -1
+        marking an unbounded direction, the point_region mapping from input
+        point to its region, and the ridge structure (which two points share
+        a ridge, and which vertices bound it). Same 2D/3D and 20000-point
+        bound as DelaunayTriangulate.
+      input: VoronoiInput
+      output: VoronoiResult
+    - name: ConvexHull
+      description: >-
+        Compute the convex hull of a general N-dimensional point set (2 <= D
+        <= 10) via scipy.spatial.ConvexHull (Qhull) — distinct from
+        geometry-tools' 2D polygon hull and mesh-tools' 3D triangle-mesh
+        hull, this is the general-dimensional case. Returns the hull's
+        extreme-point (vertex) indices, its facet simplices, its
+        D-dimensional volume (area, for D=2), and its (D-1)-dimensional
+        surface measure (perimeter, for D=2). Fewer than D+1 points returns
+        INSUFFICIENT_POINTS; coplanar/collinear (rank-deficient) points
+        return DEGENERATE_INPUT. Point count capped at 20000; highly
+        structured high-D inputs (e.g. points on a hypersphere) can still be
+        slow even within these bounds — a documented, logged limitation, not
+        a blocker (see PointInConvexHull for a membership test against an
+        already-computed hull).
+      input: ConvexHullInput
+      output: ConvexHullResult
+    - name: KNearestNeighbors
+      description: >-
+        Build a KD-tree over `points` (scipy.spatial.cKDTree) and query the
+        k nearest neighbors of each row in `queries` — the core spatial-index
+        node. metric is "euclidean" (default), "cityblock", or "chebyshev"
+        (the Minkowski-family metrics a KD-tree natively supports; for
+        cosine/hamming/jaccard/mahalanobis use PairwiseDistanceMatrix /
+        CrossDistanceMatrix instead). Returns Q x k index and distance
+        matrices, ascending-distance order per row; rows are padded with
+        index -1 / distance +Infinity if fewer than k candidate points
+        exist. k must satisfy 1 <= k <= min(N, 256); Q * k is capped at
+        100000.
+      input: KNNInput
+      output: KNNResult
+    - name: RadiusNeighbors
+      description: >-
+        Build a KD-tree over `points` and, for each row in `queries`, return
+        every point within `radius` (a "ball query"), via
+        scipy.spatial.cKDTree.query_ball_point. metric is the same
+        Minkowski-family choice as KNearestNeighbors. Result rows are
+        ragged (variable neighbor count per query) and not guaranteed
+        sorted by distance. `radius` must be > 0; the total neighbor count
+        across all queries is checked after the query runs and TOO_LARGE is
+        returned instead of a giant payload if it exceeds 200000.
+      input: RadiusNeighborsInput
+      output: RadiusNeighborsResult
+    - name: QueryPairs
+      description: >-
+        Find every pair of points within `distance` of each other, inside a
+        single point set, via scipy.spatial.cKDTree.query_pairs. metric is
+        the same Minkowski-family choice as KNearestNeighbors. Returns each
+        qualifying pair (i, j) with i < j as row indices into `points`.
+        `distance` must be > 0; the pair count is checked after the query
+        runs and TOO_LARGE is returned instead of a giant payload if it
+        exceeds 200000 (which a large radius on a dense cloud can produce,
+        since pair count is worst-case O(N^2)).
+      input: QueryPairsInput
+      output: QueryPairsResult
+    - name: NearestSinglePoint
+      description: >-
+        Find the single nearest point in `points` to one `query` point, via
+        scipy.spatial.cKDTree — a convenience node for the common
+        single-query case (KNearestNeighbors handles the batched-queries,
+        k>=1 general case; this always returns exactly one index + one
+        distance). metric is the same Minkowski-family choice as
+        KNearestNeighbors.
+      input: NearestSinglePointInput
+      output: NearestSinglePointResult
+    - name: KNNGraph
+      description: >-
+        Build a spatial k-nearest-neighbor GRAPH over `points`: for every
+        point, find its k nearest OTHER points (self excluded) via
+        scipy.spatial.cKDTree, and return the resulting directed edge list
+        (i -> j meaning "j is one of i's k nearest neighbors") with
+        per-edge distances. Not symmetrized — union/intersect the edges
+        yourself for a mutual/undirected graph. k must satisfy 1 <= k <=
+        min(N-1, 256); N * k is capped at 100000.
+      input: KNNGraphInput
+      output: KNNGraphResult
+    - name: PairwiseDistanceMatrix
+      description: >-
+        Compute the condensed (upper-triangular) pairwise distance vector
+        among all rows of `points`, via scipy.spatial.distance.pdist. metric
+        is "euclidean" (default), "cityblock", "cosine", "chebyshev",
+        "minkowski" (uses `p`, default 2), "hamming", "jaccard", or
+        "mahalanobis" (uses `inv_cov` if supplied, else scipy's own
+        internally-derived sample inverse-covariance). Returns the condensed
+        vector (length n*(n-1)/2) plus `n` so the caller can index or
+        squareform-expand it. Point count is capped at 800 to keep the
+        condensed output (which grows quadratically) well under the
+        transport limit.
+      input: PdistInput
+      output: PdistResult
+    - name: CrossDistanceMatrix
+      description: >-
+        Compute the full cross distance matrix between two point sets
+        `points_a` (N x D) and `points_b` (M x D), via
+        scipy.spatial.distance.cdist. Same metric/p/inv_cov options as
+        PairwiseDistanceMatrix. Returns an N x M matrix,
+        distances[i][j] = distance(points_a[i], points_b[j]). N * M is
+        capped at 350000 to keep the output well under the transport limit.
+      input: CdistInput
+      output: CdistResult
+    - name: PointDistance
+      description: >-
+        Compute the distance between exactly two D-dimensional points under
+        a chosen metric, via scipy.spatial.distance's per-metric functions.
+        metric is "euclidean" (default), "cityblock", "cosine", "chebyshev",
+        "minkowski" (uses `p`, default 2), "hamming", "jaccard", or
+        "mahalanobis" (requires `inv_cov` to be supplied explicitly — with
+        only two points there is no sample to derive a covariance from,
+        unlike Pdist/Cdist's fallback). `a` and `b` must have equal length.
+      input: PointDistanceInput
+      output: PointDistanceResult
+    - name: HausdorffDistance
+      description: >-
+        Compute the symmetric Hausdorff distance between two point sets
+        `points_a` and `points_b`, via
+        max(scipy.spatial.distance.directed_hausdorff(A,B),
+        directed_hausdorff(B,A)) — the standard shape/point-cloud-similarity
+        measure of "how far is the farthest point in one set from its
+        nearest neighbor in the other." Returns the distance, which
+        direction achieved it (from_a), and the achieving index pair. Both
+        point sets capped at 20000 points each (the underlying computation
+        is worst-case O(N*M), though scipy's implementation short-circuits
+        in practice).
+      input: HausdorffInput
+      output: HausdorffResult
+    - name: ProcrustesDisparity
+      description: >-
+        Compute the Procrustes disparity between two equally-shaped point
+        sets (shape alignment), via scipy.spatial.procrustes — standardizes
+        both point sets (center at the origin, scale to unit Frobenius
+        norm) and finds the optimal rotation of `points_b` onto `points_a`,
+        returning the sum-of-squared-errors disparity (0 = identical shape)
+        plus both standardized/aligned point sets. `points_a` and
+        `points_b` must have identical shape (row-count and
+        dimensionality); a row/column mismatch is DIMENSION_MISMATCH, and a
+        single-point or zero-variance input (no shape to align) is
+        DEGENERATE_INPUT. Combined N * D across both inputs capped at
+        350000, N >= 2.
+      input: ProcrustesInput
+      output: ProcrustesResult
+    - name: PointInConvexHull
+      description: >-
+        Test whether each point in `queries` lies inside (or on the
+        boundary of, within `tol`) the convex hull of `points`, via
+        scipy.spatial.ConvexHull's facet equations (hull.equations) — the
+        standard scipy-documented point-in-hull technique, since scipy has
+        no direct "contains" method. Same N/D bound and DEGENERATE_INPUT /
+        INSUFFICIENT_POINTS behavior as ConvexHull for the hull-defining
+        `points`. `tol` defaults to 1e-9 when <= 0.
+      input: PointInHullInput
+      output: PointInHullResult
+    - name: FindSimplex
+      description: >-
+        Locate which Delaunay simplex (of `points`' 2D/3D triangulation, via
+        scipy.spatial.Delaunay.find_simplex) each row of `queries` falls
+        into, and its barycentric weights within that simplex — set-up for
+        barycentric interpolation. Returns -1 for a query point outside the
+        triangulation's convex hull (with an all-zero barycentric row).
+        Same 2D/3D and point-count bound as DelaunayTriangulate.
+      input: FindSimplexInput
+      output: FindSimplexResult
+    - name: BoundingBox
+      description: >-
+        Compute the axis-aligned bounding box of a point set: the
+        per-dimension minimum and maximum across all rows of `points`, via
+        numpy.min/numpy.max. Dimensionality capped at 50 and point count at
+        100000 — a single linear pass with no combinatorial cost.
+      input: BoundingBoxInput
+      output: BoundingBoxResult
