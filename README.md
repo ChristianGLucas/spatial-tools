@@ -1,7 +1,7 @@
 # spatial-tools
 
 Deterministic computational-spatial algorithms on N-dimensional point sets for
-AI agents — built for the [Axiom](https://axiom.dev) marketplace
+AI agents — built for the [Axiom](https://axiomide.com) marketplace
 (`christiangeorgelucas/spatial-tools`).
 
 Wraps [SciPy](https://scipy.org)'s `scipy.spatial` and `scipy.spatial.distance`
