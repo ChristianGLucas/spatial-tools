@@ -11,10 +11,7 @@ from nodes._common import (
     matrix_to_array,
 )
 
-MAX_POINTS = 20_000
-MAX_QUERIES = 20_000
 MIN_DIM = 2
-MAX_DIM = 10
 DEFAULT_TOL = 1e-9
 
 
@@ -26,8 +23,8 @@ def point_in_convex_hull(ax: AxiomContext, input: PointInHullInput) -> PointInHu
     1e-9 when <= 0.
     """
     try:
-        check_matrix_shape(input.points, max_rows=MAX_POINTS, max_cols=MAX_DIM, name="points")
-        check_matrix_shape(input.queries, max_rows=MAX_QUERIES, max_cols=MAX_DIM, name="queries")
+        check_matrix_shape(input.points, name="points")
+        check_matrix_shape(input.queries, name="queries")
         points = matrix_to_array(input.points)
         queries = matrix_to_array(input.queries)
         n, d = points.shape

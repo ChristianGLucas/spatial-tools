@@ -12,8 +12,6 @@ from nodes._common import (
     matrix_to_array,
 )
 
-MAX_POINTS = 20_000
-MAX_QUERIES = 20_000
 ALLOWED_DIMS = (2, 3)
 
 
@@ -25,8 +23,8 @@ def find_simplex(ax: AxiomContext, input: FindSimplexInput) -> FindSimplexResult
     triangulation's convex hull (with an all-zero barycentric row).
     """
     try:
-        check_matrix_shape(input.points, max_rows=MAX_POINTS, max_cols=3, name="points")
-        check_matrix_shape(input.queries, max_rows=MAX_QUERIES, max_cols=3, name="queries")
+        check_matrix_shape(input.points, name="points")
+        check_matrix_shape(input.queries, name="queries")
         points = matrix_to_array(input.points)
         queries = matrix_to_array(input.queries)
         n, d = points.shape

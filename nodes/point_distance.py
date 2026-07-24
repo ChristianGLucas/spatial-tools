@@ -10,9 +10,6 @@ from nodes._common import (
     vector_to_array,
 )
 
-MAX_DIM = 4096
-
-
 def point_distance(ax: AxiomContext, input: PointDistanceInput) -> PointDistanceResult:
     """Compute the distance between exactly two D-dimensional points under
     a chosen metric, via scipy.spatial.distance. metric is "euclidean"
@@ -28,8 +25,6 @@ def point_distance(ax: AxiomContext, input: PointDistanceInput) -> PointDistance
             raise NodeInputError("EMPTY_INPUT", "a and b must each have at least one dimension")
         if len(a) != len(b):
             raise NodeInputError("DIMENSION_MISMATCH", f"a has {len(a)} dims, b has {len(b)} dims")
-        if len(a) > MAX_DIM:
-            raise NodeInputError("TOO_LARGE", f"dimensionality {len(a)} exceeds max {MAX_DIM}")
 
         metric, kwargs = resolve_full_metric_kwargs(
             input.metric, input.p, input.inv_cov if input.HasField("inv_cov") else None,

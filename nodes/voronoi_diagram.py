@@ -12,7 +12,6 @@ from nodes._common import (
     ragged_to_int_matrix,
 )
 
-MAX_POINTS = 20_000
 ALLOWED_DIMS = (2, 3)
 
 
@@ -25,7 +24,7 @@ def voronoi_diagram(ax: AxiomContext, input: VoronoiInput) -> VoronoiResult:
     point to its region, and the ridge structure.
     """
     try:
-        check_matrix_shape(input.points, max_rows=MAX_POINTS, max_cols=3)
+        check_matrix_shape(input.points)
         points = matrix_to_array(input.points)
         n, d = points.shape
         if d not in ALLOWED_DIMS:

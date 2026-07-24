@@ -6,9 +6,9 @@ convention used by christiangeorgelucas/numerics-tools and
 christiangeorgelucas/sklearn-tools — see messages.proto's header comment).
 This module centralizes:
   - proto <-> numpy conversions
-  - input-size guards, enforced BEFORE allocating a numpy array from the
-    caller-supplied Matrix so a claimed huge dimension is rejected on the
-    proto's own row/col counts, not after materializing a huge array
+  - shape validation (empty input, ragged rows) shared by every node that
+    consumes a point set — size/resource limits are the platform's concern,
+    not this package's
   - the shared structured-error contract (Error{code, message})
 
 Every node in this package is fully deterministic (scipy.spatial/scipy.
@@ -20,14 +20,6 @@ from __future__ import annotations
 import numpy as np
 
 from gen.messages_pb2 import BoolVector, Error, IntMatrix, IntVector, Matrix, Vector
-
-# Generic per-point-set caps used as a default by the cheap, non-combinatorial
-# nodes (BoundingBox). Nodes with a combinatorially expensive underlying
-# algorithm (Delaunay/Voronoi/ConvexHull/Pdist/Hausdorff/...) apply their own,
-# tighter caps at the call site — see each node's axiom.yaml description for
-# the exact number and rationale.
-DEFAULT_MAX_ROWS = 100_000
-DEFAULT_MAX_COLS = 50
 
 # Minkowski-family metrics scipy.spatial.cKDTree natively accelerates.
 KDTREE_METRICS = {"euclidean": 2, "cityblock": 1, "chebyshev": np.inf}
@@ -62,8 +54,6 @@ class NodeInputError(Exception):
 def check_matrix_shape(
     matrix: Matrix,
     *,
-    max_rows: int = DEFAULT_MAX_ROWS,
-    max_cols: int = DEFAULT_MAX_COLS,
     min_rows: int = 1,
     name: str = "points",
 ) -> None:
@@ -83,10 +73,6 @@ def check_matrix_shape(
                 "RAGGED_MATRIX",
                 f"{name} row {i} has {len(row.values)} columns, expected {n_cols}",
             )
-    if n_rows > max_rows or n_cols > max_cols:
-        raise NodeInputError(
-            "TOO_LARGE", f"{name} is {n_rows}x{n_cols}; max is {max_rows}x{max_cols}"
-        )
 
 
 def matrix_to_array(matrix: Matrix, *, allow_nonfinite: bool = False, name: str = "points") -> np.ndarray:
@@ -147,30 +133,6 @@ def ragged_to_int_matrix(rows) -> IntMatrix:
 
 def array_to_bool_vector(arr) -> BoolVector:
     return BoolVector(values=[bool(v) for v in np.asarray(arr).ravel()])
-
-
-def check_output_cells(n_rows: int, n_cols: int, *, cap: int, label: str = "output") -> None:
-    """Guard an output matrix's size BEFORE computing it, for nodes whose
-    output shape is a function of caller-supplied parameters (k, ...) rather
-    than a direct echo of the input's own shape."""
-    if n_rows < 0 or n_cols < 0:
-        raise NodeInputError("INVALID_ARGUMENT", f"{label} has a negative dimension")
-    if n_rows * n_cols > cap:
-        raise NodeInputError(
-            "TOO_LARGE",
-            f"{label} would be {n_rows}x{n_cols} ({n_rows * n_cols} cells); max is {cap} cells",
-        )
-
-
-def check_result_count(count: int, *, cap: int, label: str = "result") -> None:
-    """Guard a result COUNT computed post-hoc (query_pairs, query_ball_point
-    total neighbors) — these can't be bounded before running the query, so
-    they're checked immediately after and before serializing the response."""
-    if count > cap:
-        raise NodeInputError(
-            "TOO_LARGE",
-            f"{label} has {count} entries; max is {cap} — narrow the radius/distance or input size",
-        )
 
 
 def resolve_kdtree_metric(metric: str) -> tuple[str, float]:

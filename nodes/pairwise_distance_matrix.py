@@ -11,9 +11,6 @@ from nodes._common import (
     resolve_full_metric_kwargs,
 )
 
-MAX_POINTS = 800
-
-
 def pairwise_distance_matrix(ax: AxiomContext, input: PdistInput) -> PdistResult:
     """Compute the condensed (upper-triangular) pairwise distance vector
     among all rows of `points`, via scipy.spatial.distance.pdist. metric is
@@ -24,7 +21,7 @@ def pairwise_distance_matrix(ax: AxiomContext, input: PdistInput) -> PdistResult
     plus `n` so the caller can index or squareform-expand it.
     """
     try:
-        check_matrix_shape(input.points, max_rows=MAX_POINTS, max_cols=256, min_rows=2, name="points")
+        check_matrix_shape(input.points, min_rows=2, name="points")
         points = matrix_to_array(input.points)
         n = points.shape[0]
 

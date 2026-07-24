@@ -10,10 +10,6 @@ from nodes._common import (
     matrix_to_array,
 )
 
-MAX_POINTS = 20_000
-MAX_DIM = 256
-
-
 def hausdorff_distance(ax: AxiomContext, input: HausdorffInput) -> HausdorffResult:
     """Compute the symmetric Hausdorff distance between two point sets
     `points_a` and `points_b`, via
@@ -22,8 +18,8 @@ def hausdorff_distance(ax: AxiomContext, input: HausdorffInput) -> HausdorffResu
     achieving index pair.
     """
     try:
-        check_matrix_shape(input.points_a, max_rows=MAX_POINTS, max_cols=MAX_DIM, name="points_a")
-        check_matrix_shape(input.points_b, max_rows=MAX_POINTS, max_cols=MAX_DIM, name="points_b")
+        check_matrix_shape(input.points_a, name="points_a")
+        check_matrix_shape(input.points_b, name="points_b")
         a = matrix_to_array(input.points_a, name="points_a")
         b = matrix_to_array(input.points_b, name="points_b")
         if a.shape[1] != b.shape[1]:

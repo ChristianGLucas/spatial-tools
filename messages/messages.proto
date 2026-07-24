@@ -27,17 +27,16 @@ package christiangeorgelucas.spatial_tools;
 // this package and those without reshaping. (Cross-package proto import is
 // not supported by `axiom generate` on this platform version — every sibling
 // package that shares this convention independently fell back to the same
-// structurally-identical local copy, not an import.) Every node caps
-// rows/cols/derived-output size hard (see each node's own description) to
-// stay within a sane compute budget and the ~4 MiB Axiom transport limit,
-// checked BEFORE the expensive computation runs wherever the output size is
-// known ahead of time.
+// structurally-identical local copy, not an import.) Size/resource limits
+// on input or output are the platform's concern, not this package's — every
+// node validates only domain correctness (empty input, ragged rows,
+// dimension mismatches, degenerate geometry).
 // ---------------------------------------------------------------------------
 
 // Structured error shared by every result message in this package. On
 // success `code` is empty; on failure it carries a stable machine-readable
 // token (see each node's own description for its exact vocabulary, e.g.
-// "EMPTY_INPUT", "RAGGED_MATRIX", "DIMENSION_MISMATCH", "TOO_LARGE",
+// "EMPTY_INPUT", "RAGGED_MATRIX", "DIMENSION_MISMATCH",
 // "DEGENERATE_INPUT", "INSUFFICIENT_POINTS", "INVALID_ARGUMENT") and
 // `message` a human-readable detail. A node never crashes on malformed or
 // degenerate input — it always returns this instead.

@@ -11,10 +11,6 @@ from nodes._common import (
     vector_to_array,
 )
 
-MAX_POINTS = 20_000
-MAX_DIM = 64
-
-
 def nearest_single_point(ax: AxiomContext, input: NearestSinglePointInput) -> NearestSinglePointResult:
     """Find the single nearest point in `points` to one `query` point, via
     scipy.spatial.cKDTree — a convenience node for the common single-query
@@ -22,7 +18,7 @@ def nearest_single_point(ax: AxiomContext, input: NearestSinglePointInput) -> Ne
     metric is "euclidean" (default), "cityblock", or "chebyshev".
     """
     try:
-        check_matrix_shape(input.points, max_rows=MAX_POINTS, max_cols=MAX_DIM, name="points")
+        check_matrix_shape(input.points, name="points")
         points = matrix_to_array(input.points)
         query = vector_to_array(input.query, name="query")
         if len(query) == 0:

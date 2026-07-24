@@ -2,17 +2,13 @@ from gen.axiom_context import AxiomContext
 from gen.messages_pb2 import BoundingBoxInput, BoundingBoxResult
 from nodes._common import NodeInputError, array_to_vector, check_matrix_shape, err, matrix_to_array
 
-MAX_POINTS = 100_000
-MAX_DIM = 50
-
-
 def bounding_box(ax: AxiomContext, input: BoundingBoxInput) -> BoundingBoxResult:
     """Compute the axis-aligned bounding box of a point set: the
     per-dimension minimum and maximum across all rows of `points`, via
     numpy.min/numpy.max.
     """
     try:
-        check_matrix_shape(input.points, max_rows=MAX_POINTS, max_cols=MAX_DIM, name="points")
+        check_matrix_shape(input.points, name="points")
         points = matrix_to_array(input.points)
 
         return BoundingBoxResult(

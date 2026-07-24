@@ -8,15 +8,9 @@ from nodes._common import (
     array_to_int_matrix,
     array_to_vector,
     check_matrix_shape,
-    check_output_cells,
     err,
     matrix_to_array,
 )
-
-MAX_POINTS = 20_000
-MAX_DIM = 64
-MAX_K = 256
-MAX_OUTPUT_CELLS = 100_000
 
 
 def knn_graph(ax: AxiomContext, input: KNNGraphInput) -> KNNGraphResult:
@@ -28,18 +22,16 @@ def knn_graph(ax: AxiomContext, input: KNNGraphInput) -> KNNGraphResult:
     mutual/undirected graph.
     """
     try:
-        check_matrix_shape(input.points, max_rows=MAX_POINTS, max_cols=MAX_DIM, name="points")
+        check_matrix_shape(input.points, name="points")
         points = matrix_to_array(input.points)
         n = points.shape[0]
 
         k = input.k
-        max_k = min(n - 1, MAX_K)
+        max_k = n - 1
         if k < 1 or k > max_k:
             raise NodeInputError(
-                "INVALID_ARGUMENT", f"k must satisfy 1 <= k <= min(len(points)-1, {MAX_K}) = {max_k} (got {k})"
+                "INVALID_ARGUMENT", f"k must satisfy 1 <= k <= len(points)-1 = {max_k} (got {k})"
             )
-
-        check_output_cells(n, k, cap=MAX_OUTPUT_CELLS, label="edges")
 
         tree = cKDTree(points)
         # Query k+1 to include self, then drop the self-match per row.

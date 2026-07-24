@@ -10,9 +10,6 @@ from nodes._common import (
     matrix_to_array,
 )
 
-MAX_CELLS = 350_000
-
-
 def procrustes_disparity(ax: AxiomContext, input: ProcrustesInput) -> ProcrustesResult:
     """Compute the Procrustes disparity between two equally-shaped point
     sets (shape alignment), via scipy.spatial.procrustes — standardizes
@@ -21,18 +18,14 @@ def procrustes_disparity(ax: AxiomContext, input: ProcrustesInput) -> Procrustes
     identical shape) plus both standardized/aligned point sets.
     """
     try:
-        check_matrix_shape(input.points_a, max_rows=100_000, max_cols=256, min_rows=2, name="points_a")
-        check_matrix_shape(input.points_b, max_rows=100_000, max_cols=256, min_rows=2, name="points_b")
+        check_matrix_shape(input.points_a, min_rows=2, name="points_a")
+        check_matrix_shape(input.points_b, min_rows=2, name="points_b")
         a = matrix_to_array(input.points_a, name="points_a")
         b = matrix_to_array(input.points_b, name="points_b")
 
         if a.shape != b.shape:
             raise NodeInputError(
                 "DIMENSION_MISMATCH", f"points_a has shape {a.shape}, points_b has shape {b.shape}"
-            )
-        if a.shape[0] * a.shape[1] > MAX_CELLS:
-            raise NodeInputError(
-                "TOO_LARGE", f"points_a/points_b have {a.shape[0] * a.shape[1]} cells each; max is {MAX_CELLS}"
             )
 
         try:

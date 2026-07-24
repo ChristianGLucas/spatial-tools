@@ -8,17 +8,10 @@ from nodes._common import (
     array_to_int_matrix,
     array_to_matrix,
     check_matrix_shape,
-    check_output_cells,
     err,
     matrix_to_array,
     resolve_kdtree_metric,
 )
-
-MAX_POINTS = 20_000
-MAX_QUERIES = 20_000
-MAX_DIM = 64
-MAX_K = 256
-MAX_OUTPUT_CELLS = 100_000
 
 
 def k_nearest_neighbors(ax: AxiomContext, input: KNNInput) -> KNNResult:
@@ -30,8 +23,8 @@ def k_nearest_neighbors(ax: AxiomContext, input: KNNInput) -> KNNResult:
     always fully populated with k real neighbors, never padded.
     """
     try:
-        check_matrix_shape(input.points, max_rows=MAX_POINTS, max_cols=MAX_DIM, name="points")
-        check_matrix_shape(input.queries, max_rows=MAX_QUERIES, max_cols=MAX_DIM, name="queries")
+        check_matrix_shape(input.points, name="points")
+        check_matrix_shape(input.queries, name="queries")
         points = matrix_to_array(input.points)
         queries = matrix_to_array(input.queries)
         if points.shape[1] != queries.shape[1]:
@@ -41,15 +34,13 @@ def k_nearest_neighbors(ax: AxiomContext, input: KNNInput) -> KNNResult:
             )
 
         k = input.k
-        if k < 1 or k > min(points.shape[0], MAX_K):
+        if k < 1 or k > points.shape[0]:
             raise NodeInputError(
                 "INVALID_ARGUMENT",
-                f"k must satisfy 1 <= k <= min(len(points), {MAX_K}) = "
-                f"{min(points.shape[0], MAX_K)} (got {k})",
+                f"k must satisfy 1 <= k <= len(points) = {points.shape[0]} (got {k})",
             )
 
         metric, p = resolve_kdtree_metric(input.metric)
-        check_output_cells(queries.shape[0], k, cap=MAX_OUTPUT_CELLS, label="indices/distances")
 
         tree = cKDTree(points)
         dist, idx = tree.query(queries, k=k, p=p)
